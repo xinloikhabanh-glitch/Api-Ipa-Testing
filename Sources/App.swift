@@ -12,7 +12,7 @@ enum Config {
     /// Trang mở mặc định sau khi nhập key đúng.
     ///  - Trang trên mạng:      "https://ten-mien-cua-ban.vercel.app/panel.html"
     ///  - File HTML nằm trong app: "bundle:panel.html"   (file đặt trong thư mục Web/)
-    static let defaultPage = "https://api-rust-alpha-49.vercel.app/panel.html"
+    static let defaultPage = "https://api-rust-alpha-49.vercel.app/activate.html"
 
     /// Cứ mỗi bao nhiêu giây thì kiểm tra lại key với server.
     static let recheckInterval: TimeInterval = 60
