@@ -43,6 +43,7 @@ jobs:
           ls -la
 
       - name: Build (unsigned)
+        shell: bash
         run: |
           PROJ=$(ls -d *.xcodeproj | head -n 1)
           if [ -z "$PROJ" ]; then
@@ -61,7 +62,14 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            clean build
+            clean build 2>&1 | tee build.log
+
+      - name: Show compile errors
+        if: failure()
+        run: |
+          echo "=========== CÁC DÒNG LỖI ==========="
+          grep -E "error:" build.log | sort -u | head -40 || true
+          echo "====================================="
 
       - name: Package IPA
         run: |
