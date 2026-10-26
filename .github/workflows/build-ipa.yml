@@ -11,6 +11,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Prepare music and icon
+        run: |
+          mkdir -p Resources
+          echo "music folder" > Resources/placeholder.txt
+          for f in *.mp3 *.m4a *.wav; do
+            if [ -f "$f" ]; then cp "$f" Resources/; fi
+          done
+          ls Resources
+          mkdir -p Assets.xcassets/AppIcon.appiconset
+          echo '{"info":{"author":"xcode","version":1}}' > Assets.xcassets/Contents.json
+          ICON=""
+          if [ -f AppIcon.png ]; then
+            sips -z 1024 1024 -s format jpeg AppIcon.png --out /tmp/icon.jpg
+            sips -s format png /tmp/icon.jpg --out Assets.xcassets/AppIcon.appiconset/AppIcon.png
+            ICON='"filename":"AppIcon.png",'
+          fi
+          echo "{\"images\":[{${ICON}\"idiom\":\"universal\",\"platform\":\"ios\",\"size\":\"1024x1024\"}],\"info\":{\"author\":\"xcode\",\"version\":1}}" > Assets.xcassets/AppIcon.appiconset/Contents.json
+          cat Assets.xcassets/AppIcon.appiconset/Contents.json
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
