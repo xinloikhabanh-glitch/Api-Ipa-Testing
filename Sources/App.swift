@@ -1,7 +1,6 @@
 import SwiftUI
-import WebKit
-import Security
 import UIKit
+import Security
 
 // MARK: - Cấu hình (SỬA Ở ĐÂY)
 
@@ -9,16 +8,87 @@ enum Config {
     /// Địa chỉ server Vercel của bạn, KHÔNG có dấu "/" ở cuối.
     static let apiBase = "https://api-rust-alpha-49.vercel.app"
 
-    /// Trang mở mặc định sau khi nhập key đúng.
-    ///  - Trang trên mạng:      "https://ten-mien-cua-ban.vercel.app/panel.html"
-    ///  - File HTML nằm trong app: "bundle:panel.html"   (file đặt trong thư mục Web/)
-    static let defaultPage = "https://api-rust-alpha-49.vercel.app/activate.html"
-
     /// Cứ mỗi bao nhiêu giây thì kiểm tra lại key với server.
     static let recheckInterval: TimeInterval = 60
+
+    static let zaloNumber = "0335849687"
+    static let tiktokUser = "thaitunhahotran"
 }
 
-// MARK: - Keychain (lưu key + mã thiết bị, giữ lại cả khi xoá app nếu máy cho phép)
+// MARK: - Giao diện chung
+
+enum Theme {
+    static let bg = Color(red: 0.03, green: 0.05, blue: 0.09)
+    static let cyan = Color(red: 0.16, green: 0.78, blue: 1.0)
+    static let card = Color.white.opacity(0.07)
+    static let good = Color(red: 0.19, green: 0.82, blue: 0.35)
+    static let warn = Color(red: 1.0, green: 0.78, blue: 0.2)
+    static let bad = Color(red: 1.0, green: 0.38, blue: 0.38)
+}
+
+struct AppBackground: View {
+    var body: some View {
+        ZStack {
+            Theme.bg
+            RadialGradient(colors: [Theme.cyan.opacity(0.22), .clear],
+                           center: .topLeading, startRadius: 10, endRadius: 420)
+            RadialGradient(colors: [Color.purple.opacity(0.18), .clear],
+                           center: .bottomTrailing, startRadius: 10, endRadius: 420)
+        }
+        .ignoresSafeArea()
+    }
+}
+
+struct Card<Content: View>: View {
+    let title: String
+    var icon: String = ""
+    let content: Content
+
+    init(_ title: String, icon: String = "", @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.icon = icon
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                if !icon.isEmpty {
+                    Image(systemName: icon).foregroundColor(Theme.cyan)
+                }
+                Text(title.uppercased())
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundColor(Color.white.opacity(0.65))
+                    .tracking(1)
+            }
+            content
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(Theme.card)
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.white.opacity(0.12), lineWidth: 1))
+        .cornerRadius(20)
+    }
+}
+
+struct BrandHeader: View {
+    let subtitle: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("TOUCH TECHNOLOGY")
+                .font(.system(size: 26, weight: .black, design: .rounded))
+                .foregroundColor(Theme.cyan)
+                .shadow(color: Theme.cyan.opacity(0.7), radius: 10)
+            Text(subtitle)
+                .font(.subheadline)
+                .foregroundColor(Color.white.opacity(0.6))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Keychain (lưu key + mã thiết bị)
 
 enum Keychain {
     private static let service = "app.license"
@@ -141,15 +211,11 @@ final class AppState: ObservableObject {
     @Published var busy = false
     @Published var message = ""
     @Published var offline = false
-    @Published var page: String {
-        didSet { UserDefaults.standard.set(page, forKey: "page") }
-    }
 
     private var skew: Double = 0   // serverTime - giờ máy (ms)
     private var loop: Task<Void, Never>?
 
     init() {
-        page = UserDefaults.standard.string(forKey: "page") ?? Config.defaultPage
         if let k = Keychain.get("key") {
             Task { await self.activate(k) }
         }
@@ -268,188 +334,7 @@ final class AppState: ObservableObject {
     }
 }
 
-// MARK: - File HTML nằm trong app (thư mục Web/)
-
-enum Bundled {
-    static var dir: URL? { return Bundle.main.url(forResource: "Web", withExtension: nil) }
-
-    static func list() -> [String] {
-        guard let dir = dir,
-              let en = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil) else { return [] }
-        let skip = dir.standardizedFileURL.pathComponents.count
-        var out: [String] = []
-        for case let u as URL in en where u.pathExtension.lowercased() == "html" {
-            let rel = u.standardizedFileURL.pathComponents.dropFirst(skip).joined(separator: "/")
-            out.append(rel)
-        }
-        return out.sorted()
-    }
-}
-
-// MARK: - WebView (cầu nối giữa app và file HTML)
-
-struct WebView: UIViewRepresentable {
-    let target: String      // "https://..." hoặc "bundle:ten-file.html"
-    let info: LicenseInfo
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeUIView(context: Context) -> WKWebView {
-        let cfg = WKWebViewConfiguration()
-        cfg.allowsInlineMediaPlayback = true
-
-        let ucc = WKUserContentController()
-        ucc.addUserScript(WKUserScript(source: bridgeScript(), injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        ucc.add(context.coordinator, name: "native")
-        cfg.userContentController = ucc
-
-        let wv = WKWebView(frame: .zero, configuration: cfg)
-        wv.isOpaque = false
-        wv.backgroundColor = .black
-        wv.scrollView.backgroundColor = .black
-        wv.scrollView.contentInsetAdjustmentBehavior = .never
-        wv.allowsBackForwardNavigationGestures = true
-        wv.navigationDelegate = context.coordinator
-        wv.uiDelegate = context.coordinator
-        context.coordinator.load(target, in: wv)
-        return wv
-    }
-
-    func updateUIView(_ wv: WKWebView, context: Context) {
-        if context.coordinator.current != target {
-            context.coordinator.load(target, in: wv)
-        }
-    }
-
-    static func dismantleUIView(_ wv: WKWebView, coordinator: Coordinator) {
-        wv.configuration.userContentController.removeScriptMessageHandler(forName: "native")
-        wv.configuration.userContentController.removeAllUserScripts()
-    }
-
-    /// JS chèn vào MỌI trang HTML:
-    ///  - window.NATIVE: thông tin key/thiết bị cho trang dùng
-    ///  - tự điền key + hwid vào localStorage => trang HTML của bạn không phải nhập key lại
-    ///  - fetch("/api/...") tự trỏ về server của bạn, kể cả khi file HTML nằm trong app
-    ///  - mọi lời gọi /api/verify đều dùng đúng HWID của iPhone
-    ///  - navigator.vibrate chạy được trên iOS (rung nhẹ)
-    private func bridgeScript() -> String {
-        let obj: [String: Any] = [
-            "api": Config.apiBase,
-            "key": info.key,
-            "hwid": Device.hwid,
-            "deviceName": Device.name,
-            "tier": info.tier,
-            "lifetime": info.lifetime,
-            "expiresAt": info.expiresAt.map { $0 as Any } ?? NSNull(),
-            "app": "ios"
-        ]
-        let json = (try? JSONSerialization.data(withJSONObject: obj))
-            .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-
-        let body = #"""
-        window.NATIVE = C;
-        try { localStorage.setItem('key', C.key); localStorage.setItem('hwid', C.hwid); } catch (e) {}
-        function post(m) { try { window.webkit.messageHandlers.native.postMessage(m); } catch (e) {} }
-        window.NATIVE.haptic = function (s) { post({ type: 'haptic', style: s || 'light' }); };
-        window.NATIVE.open = function (u) { post({ type: 'open', url: String(u) }); };
-        try { navigator.vibrate = function () { post({ type: 'haptic', style: 'light' }); return true; }; } catch (e) {}
-        var of = window.fetch;
-        window.fetch = function (input, init) {
-          try {
-            var url = (typeof input === 'string') ? input : ((input && input.url) || '');
-            if (typeof input === 'string' && input.indexOf('/api/') === 0) { input = C.api + input; }
-            if (url.indexOf('/api/verify') !== -1 && init && typeof init.body === 'string') {
-              var b = JSON.parse(init.body);
-              b.hwid = C.hwid; b.deviceName = C.deviceName;
-              init = Object.assign({}, init, { body: JSON.stringify(b) });
-            }
-          } catch (e) {}
-          return of.call(this, input, init);
-        };
-        """#
-
-        return "(function(){ var C = " + json + ";\n" + body + "\n})();"
-    }
-
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
-        var current = ""
-
-        func load(_ target: String, in wv: WKWebView) {
-            current = target
-            if target.hasPrefix("bundle:") {
-                let rel = String(target.dropFirst("bundle:".count))
-                if let dir = Bundled.dir {
-                    let file = dir.appendingPathComponent(rel)
-                    if FileManager.default.fileExists(atPath: file.path) {
-                        wv.loadFileURL(file, allowingReadAccessTo: dir)
-                        return
-                    }
-                }
-                showError(wv, "Không tìm thấy file \(rel) trong app.")
-            } else if let u = URL(string: target), let s = u.scheme?.lowercased(), s == "http" || s == "https" {
-                wv.load(URLRequest(url: u))
-            } else {
-                showError(wv, "Địa chỉ không hợp lệ.")
-            }
-        }
-
-        private func showError(_ wv: WKWebView, _ text: String) {
-            let safe = text
-                .replacingOccurrences(of: "&", with: "&amp;")
-                .replacingOccurrences(of: "<", with: "&lt;")
-            wv.loadHTMLString("<meta name=viewport content='width=device-width'><body style='background:#111;color:#eee;font:17px -apple-system;padding:40px 24px'>\(safe)", baseURL: nil)
-        }
-
-        // Nhận lệnh từ JS
-        func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {
-            guard let d = m.body as? [String: Any], let t = d["type"] as? String else { return }
-            if t == "haptic" {
-                let style: UIImpactFeedbackGenerator.FeedbackStyle
-                switch d["style"] as? String {
-                case "heavy": style = .heavy
-                case "medium": style = .medium
-                default: style = .light
-                }
-                UIImpactFeedbackGenerator(style: style).impactOccurred()
-            } else if t == "open",
-                      let s = d["url"] as? String,
-                      let u = URL(string: s),
-                      let sc = u.scheme?.lowercased(), sc == "http" || sc == "https" {
-                UIApplication.shared.open(u)
-            }
-        }
-
-        // tel:, mailto:, itms-apps:... => mở bằng app hệ thống
-        func webView(_ wv: WKWebView,
-                     decidePolicyFor action: WKNavigationAction,
-                     decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-            if let u = action.request.url, let s = u.scheme?.lowercased(),
-               !["http", "https", "file", "about", "blob", "data"].contains(s) {
-                UIApplication.shared.open(u)
-                decisionHandler(.cancel)
-                return
-            }
-            decisionHandler(.allow)
-        }
-
-        // Link target="_blank" => mở ngay trong cùng WebView
-        func webView(_ wv: WKWebView,
-                     createWebViewWith configuration: WKWebViewConfiguration,
-                     for action: WKNavigationAction,
-                     windowFeatures: WKWindowFeatures) -> WKWebView? {
-            if action.targetFrame == nil { wv.load(action.request) }
-            return nil
-        }
-
-        func webView(_ wv: WKWebView, didFailProvisionalNavigation nav: WKNavigation!, withError error: Error) {
-            let code = (error as NSError).code
-            if code == NSURLErrorCancelled { return }
-            showError(wv, "Không mở được trang: \(error.localizedDescription)")
-        }
-    }
-}
-
-// MARK: - Giao diện
+// MARK: - Màn hình nhập key
 
 struct ActivationView: View {
     @EnvironmentObject var state: AppState
@@ -458,16 +343,16 @@ struct ActivationView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [Color(red: 0.08, green: 0.10, blue: 0.28), Color(red: 0.30, green: 0.08, blue: 0.32)],
-                startPoint: .topLeading, endPoint: .bottomTrailing
-            ).ignoresSafeArea()
+            AppBackground()
 
             VStack(spacing: 14) {
-                Text("Nhập key").font(.title.bold())
-                Text("Cần key hợp lệ để sử dụng ứng dụng.")
+                Text("TOUCH TECHNOLOGY")
+                    .font(.system(size: 24, weight: .black, design: .rounded))
+                    .foregroundColor(Theme.cyan)
+                    .shadow(color: Theme.cyan.opacity(0.7), radius: 10)
+                Text("Nhập key để mở khoá ứng dụng")
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(Color.white.opacity(0.65))
                     .multilineTextAlignment(.center)
 
                 TextField("PREM-XXXX-XXXX-XXXX-XXXX", text: $key)
@@ -475,7 +360,7 @@ struct ActivationView: View {
                     .disableAutocorrection(true)
                     .multilineTextAlignment(.center)
                     .padding(14)
-                    .background(Color.black.opacity(0.25))
+                    .background(Color.black.opacity(0.3))
                     .cornerRadius(14)
                     .focused($focused)
                     .submitLabel(.go)
@@ -489,15 +374,15 @@ struct ActivationView: View {
                     .frame(maxWidth: .infinity)
                     .padding(14)
                 }
-                .background(Color.blue)
-                .foregroundColor(.white)
+                .background(Theme.cyan.opacity(state.busy ? 0.5 : 0.9))
+                .foregroundColor(.black)
                 .cornerRadius(14)
                 .disabled(state.busy)
 
                 if !state.message.isEmpty {
                     Text(state.message)
                         .font(.footnote)
-                        .foregroundColor(.red)
+                        .foregroundColor(Theme.bad)
                         .multilineTextAlignment(.center)
                 }
             }
@@ -517,120 +402,19 @@ struct ActivationView: View {
     }
 }
 
-struct WebContainer: View {
-    @EnvironmentObject var state: AppState
-    @State private var showSettings = false
+// MARK: - 3 mục chính
 
+struct MainTabs: View {
     var body: some View {
-        ZStack(alignment: .leading) {
-            Color.black.ignoresSafeArea()
-
-            if let info = state.info {
-                WebView(target: state.page, info: info)
-                    .ignoresSafeArea()
-            }
-
-            // Nút nhỏ nửa ẩn ở mép trái để mở cài đặt
-            Button { showSettings = true } label: {
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: 15))
-                    .foregroundColor(.white)
-                    .frame(width: 40, height: 40)
-                    .background(.ultraThinMaterial, in: Circle())
-            }
-            .opacity(0.5)
-            .offset(x: -22)
-
-            if state.offline {
-                VStack {
-                    Text("Mất kết nối · đang dùng key đã lưu")
-                        .font(.caption)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(.ultraThinMaterial, in: Capsule())
-                    Spacer()
-                }
-                .allowsHitTesting(false)
-            }
+        TabView {
+            FeaturesView()
+                .tabItem { Label("Chức năng", systemImage: "bolt.fill") }
+            SensitivityView()
+                .tabItem { Label("Độ nhạy FF", systemImage: "slider.horizontal.3") }
+            AdminView()
+                .tabItem { Label("Admin", systemImage: "person.crop.circle.fill") }
         }
-        .sheet(isPresented: $showSettings) {
-            SettingsView().environmentObject(state)
-        }
-    }
-}
-
-struct SettingsView: View {
-    @EnvironmentObject var state: AppState
-    @Environment(\.presentationMode) private var presentation
-    @State private var url = ""
-
-    private var files: [String] { Bundled.list() }
-
-    var body: some View {
-        NavigationView {
-            Form {
-                Section(header: Text("Giấy phép")) {
-                    if let i = state.info {
-                        row("Gói", i.tier.uppercased())
-                        row("Thời hạn", state.expiryText(i))
-                        row("Thiết bị", i.deviceLock ? "\(i.devicesUsed)/\(i.maxDevices)" : "Không giới hạn")
-                        row("Key", mask(i.key))
-                    }
-                }
-
-                Section(header: Text("Trang web"),
-                        footer: Text("Dán link trang HTML của bạn (https://…) hoặc chọn file HTML có sẵn trong app.")) {
-                    TextField("https://…", text: $url)
-                        .textInputAutocapitalization(.never)
-                        .keyboardType(.URL)
-                        .disableAutocorrection(true)
-                    Button("Mở địa chỉ này") { apply(url) }
-                    Button("Về trang mặc định") { apply(Config.defaultPage) }
-                }
-
-                if !files.isEmpty {
-                    Section(header: Text("File HTML trong app")) {
-                        ForEach(files, id: \.self) { f in
-                            Button(f) { apply("bundle:" + f) }
-                        }
-                    }
-                }
-
-                Section {
-                    Button("Đăng xuất key", role: .destructive) {
-                        presentation.wrappedValue.dismiss()
-                        state.logout()
-                    }
-                }
-            }
-            .navigationTitle("Cài đặt")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Xong") { presentation.wrappedValue.dismiss() }
-                }
-            }
-        }
-        .onAppear { url = state.page.hasPrefix("bundle:") ? "" : state.page }
-    }
-
-    private func row(_ a: String, _ b: String) -> some View {
-        HStack {
-            Text(a)
-            Spacer()
-            Text(b).foregroundColor(.secondary)
-        }
-    }
-
-    private func mask(_ k: String) -> String {
-        return k.count > 10 ? String(k.prefix(4)) + "••••" + String(k.suffix(4)) : k
-    }
-
-    private func apply(_ s: String) {
-        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty else { return }
-        state.page = t
-        presentation.wrappedValue.dismiss()
+        .accentColor(Theme.cyan)
     }
 }
 
@@ -639,7 +423,7 @@ struct RootView: View {
 
     var body: some View {
         if state.info != nil {
-            WebContainer()
+            MainTabs()
         } else {
             ActivationView()
         }
@@ -649,12 +433,14 @@ struct RootView: View {
 @main
 struct LicenseApp: App {
     @StateObject private var state = AppState()
+    @StateObject private var music = MusicPlayer()
     @Environment(\.scenePhase) private var phase
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environmentObject(state)
+                .environmentObject(music)
                 .preferredColorScheme(.dark)
                 .onChange(of: phase) { p in
                     if p == .active { Task { await state.recheck() } }
