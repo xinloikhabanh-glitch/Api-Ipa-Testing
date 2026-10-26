@@ -11,6 +11,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check source files
+        run: |
+          ls -la Sources
+          for f in Sources/App.swift Sources/Features.swift Sources/Sensitivity.swift; do
+            if [ ! -f "$f" ]; then echo "THIẾU FILE: $f"; exit 1; fi
+          done
+          if ! grep -q "enum Theme" Sources/App.swift; then
+            echo "Sources/App.swift là BẢN CŨ. Hãy dán lại nội dung App.swift mới."
+            exit 1
+          fi
+          if ls Sources/*.swift | grep -vE "App.swift|Features.swift|Sensitivity.swift"; then
+            echo "Có file .swift lạ trong Sources/ (ở trên), hãy xoá nó."
+            exit 1
+          fi
+
       - name: Prepare music and icon
         run: |
           mkdir -p Resources
